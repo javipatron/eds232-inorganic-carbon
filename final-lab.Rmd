@@ -1,0 +1,112 @@
+---
+title: "Final Lab"
+author: "Javier Patron"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    toc: false
+---
+
+This lab will be using the knowledge of machine learning gained in my course to training models to predict dissolved inorganic carbon in water samples collected by the California Cooperative Oceanic Fisheries Investigations program (CalCOFI).
+
+Dissolved inorganic carbon (DIC) is present in all natural waters. The concentration of DIC varies from less than 20 μM in acidic soft waters to more than 5000 μM in highly alkaline hard waters, but ranges between 100 and 1000 μM in most systems. DIC is usually the most abundant form of C in water. DIC consists of three main constituents: free CO~2~ (a gas), the bicarbonate ion (HCO~3~^−^), and the carbonate ion (CO~3~^2 −^). Although CO~2~, like other gases, readily exchanges with the atmosphere, even the surface waters of most inland systems are far from equilibrium and are usually supersaturated with respect to the atmosphere. A number of factors cause this disequilibrium. [Reference](https://www.sciencedirect.com/topics/earth-and-planetary-sciences/dissolved-inorganic-carbon#:~:text=Dissolved%20inorganic%20carbon%20(DIC)%20is,form%20of%20C%20in%20water.)
+
+Some tasks will be coverd in this lab are; explore the data, pre-processing, choose a model algorithm, tune relevant parameters with cross validation, and create my own prediction.
+
+Load in the data
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(janitor)
+```
+
+## Dataset Description
+
+This dataset was downloaded from the CalCOFI data portal. Bottle and cast data was downloaded and merged, then relevant variables were selected. I will use this data (train.csv) to train a model that will predict dissolved inorganic carbon (DIC) content in the water samples.
+
+### Files
+
+-   train.csv - the training set
+-   test.csv - the test set
+-   sample_submission.csv - a sample submission file in the correct format Columns A database description is available here: <https://calcofi.org/data/oceanographic-data/bottle-database/>
+
+### Read the data
+
+```{r}
+train <- read_csv(here::here("data", "train.csv")) |> 
+  clean_names()
+test <- read_csv(here::here("data", "test.csv")) |> 
+  clean_names()
+
+sample <- read_csv(here::here("data", "sample_submission.csv"))
+
+names(train)
+```
+
+### Dataset Variable Description
+
+1.  id -
+
+2.  lat_dec - Latitude North (Degrees N)
+
+3.  lon_dec - Longitude in (-180 - 180 Degrees E or W)
+
+4.  no2u_m - Micromoles nitrite per liter of seawater
+
+5.  no3u_m - Micromoles nitrate per liter of seawater
+
+6.  nh3u_m - Micromoles ammonia per liter of seawater
+
+7.  r_temp - Reported (Potential) temperature in degrees (°C)
+
+8.  r_depth - Reported Depth (from pressure) in meters (m)
+
+9.  r_sal - Reported Salinity (from Specific Volume anomoly, (M\^3/Kg)
+
+10. r_dynht - Reported Dynamic Height in units of dynamic meters (work per unit mass)
+
+11. r_nuts - Reported ammonium concentration
+
+12. r_oxy_micromol_kg - Reported Oxygen micro-moles/kilogram
+
+13. x13 -
+
+14. po4u_m - Micro-moles Phosphate per liter of seawater
+
+15. si_o3u_m- Micro-moles Silicate per liter of seawater
+
+16. ta1_x - Total Alkalinity micro-moles per kilogram solution
+
+17. salinity1 - Salinity
+
+18. temperature_deg_c Temperature in Celsius (°C)
+
+19. dic - Dissolved inorganic carbon (Outcome)
+
+### Create the folds for the cross validation
+
+V-fold cross-validation (also known as k-fold cross-validation) randomly splits the data into the number of groups you desire making them roughly in equal size. In this case we will split into 10 groups.
+
+```{r}
+data_cv <- train |> 
+  vfold_cv(v = 10)
+
+```
+
+### Pre-processing
+
+For the pre-processing step we will create a recipe to prepare and normalize our data so we can proceed with the model. In this case we are interested in predicting the outcome variable dic which is the Inorganic Carbon in micro-moles
+
+```{r}
+dic_recipe <- recipe(dic ~ .,
+                     data = train) |>
+  prep() |> 
+  bake(new_data = train)
+```
+
+## Select our model
+
+We will go with the XGBoost model. For short is Extreme Gradient Boosting, iwhich s a powerful machine learning algorithm that is widely used in data science and predictive modeling.
+
+It is an ensemble method that combines the predictions of multiple decision tree models in a systematic way to improve the accuracy of the final prediction. XGBoost is known for its speed and accuracy and has been successfully applied to a wide range of applications, including classification, regression, and ranking problems. It works by iteratively adding decision trees to the model, where each subsequent tree tries to correct the errors of the previous tree. This process continues until a specified stopping criterion is reached or until the model reaches a desired level of performance. XGBoost is highly customizable and allows for the tuning of many different parameters, making it a popular choice among data scientists and machine learning practitioners.
