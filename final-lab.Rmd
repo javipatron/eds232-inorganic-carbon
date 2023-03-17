@@ -19,6 +19,7 @@ Load in the data
 library(tidyverse)
 library(tidymodels)
 library(janitor)
+library(tictoc)
 ```
 
 ## Dataset Description
@@ -35,9 +36,11 @@ This dataset was downloaded from the CalCOFI data portal. Bottle and cast data w
 
 ```{r}
 train <- read_csv(here::here("data", "train.csv")) |> 
-  clean_names()
+  clean_names() |> 
+  select(-c(id, x13))
 test <- read_csv(here::here("data", "test.csv")) |> 
-  clean_names()
+  clean_names() |> 
+  select(-c(id))
 
 sample <- read_csv(here::here("data", "sample_submission.csv"))
 
@@ -46,49 +49,51 @@ names(train)
 
 ### Dataset Variable Description
 
-1.  id -
+1.  lat_dec - Latitude North (Degrees N)
 
-2.  lat_dec - Latitude North (Degrees N)
+2.  lon_dec - Longitude in (-180 - 180 Degrees E or W)
 
-3.  lon_dec - Longitude in (-180 - 180 Degrees E or W)
+3.  no2u_m - Micromoles nitrite per liter of seawater
 
-4.  no2u_m - Micromoles nitrite per liter of seawater
+4.  no3u_m - Micromoles nitrate per liter of seawater
 
-5.  no3u_m - Micromoles nitrate per liter of seawater
+5.  nh3u_m - Micromoles ammonia per liter of seawater
 
-6.  nh3u_m - Micromoles ammonia per liter of seawater
+6.  r_temp - Reported (Potential) temperature in degrees (°C)
 
-7.  r_temp - Reported (Potential) temperature in degrees (°C)
+7.  r_depth - Reported Depth (from pressure) in meters (m)
 
-8.  r_depth - Reported Depth (from pressure) in meters (m)
+8.  r_sal - Reported Salinity (from Specific Volume anomoly, (M\^3/Kg)
 
-9.  r_sal - Reported Salinity (from Specific Volume anomoly, (M\^3/Kg)
+9.  r_dynht - Reported Dynamic Height in units of dynamic meters (work per unit mass)
 
-10. r_dynht - Reported Dynamic Height in units of dynamic meters (work per unit mass)
+10. r_nuts - Reported ammonium concentration
 
-11. r_nuts - Reported ammonium concentration
+11. r_oxy_micromol_kg - Reported Oxygen micro-moles/kilogram
 
-12. r_oxy_micromol_kg - Reported Oxygen micro-moles/kilogram
+12. po4u_m - Micro-moles Phosphate per liter of seawater
 
-13. x13 -
+13. si_o3u_m- Micro-moles Silicate per liter of seawater
 
-14. po4u_m - Micro-moles Phosphate per liter of seawater
+14. ta1_x - Total Alkalinity micro-moles per kilogram solution
 
-15. si_o3u_m- Micro-moles Silicate per liter of seawater
+15. salinity1 - Salinity
 
-16. ta1_x - Total Alkalinity micro-moles per kilogram solution
+16. temperature_deg_c Temperature in Celsius (°C)
 
-17. salinity1 - Salinity
-
-18. temperature_deg_c Temperature in Celsius (°C)
-
-19. dic - Dissolved inorganic carbon (Outcome)
+17. dic - Dissolved inorganic carbon (Outcome)
 
 ### Create the folds for the cross validation
 
 V-fold cross-validation (also known as k-fold cross-validation) randomly splits the data into the number of groups you desire making them roughly in equal size. In this case we will split into 10 groups.
 
 ```{r}
+set.seed(1)
+
+#Split the data
+data_split <- initial_split(train, strata = "dic")
+
+
 data_cv <- train |> 
   vfold_cv(v = 10)
 
@@ -101,12 +106,313 @@ For the pre-processing step we will create a recipe to prepare and normalize our
 ```{r}
 dic_recipe <- recipe(dic ~ .,
                      data = train) |>
+  step_normalize() |> 
   prep() |> 
   bake(new_data = train)
+
+
 ```
 
 ## Select our model
 
-We will go with the XGBoost model. For short is Extreme Gradient Boosting, iwhich s a powerful machine learning algorithm that is widely used in data science and predictive modeling.
+We will go with the XGBoost model. For short is Extreme Gradient Boosting, which is a powerful machine learning algorithm that is widely used in data science and predictive modeling. This model combines the predictions of multiple decision tree models in a systematic way to improve the accuracy of the final prediction.
 
-It is an ensemble method that combines the predictions of multiple decision tree models in a systematic way to improve the accuracy of the final prediction. XGBoost is known for its speed and accuracy and has been successfully applied to a wide range of applications, including classification, regression, and ranking problems. It works by iteratively adding decision trees to the model, where each subsequent tree tries to correct the errors of the previous tree. This process continues until a specified stopping criterion is reached or until the model reaches a desired level of performance. XGBoost is highly customizable and allows for the tuning of many different parameters, making it a popular choice among data scientists and machine learning practitioners.
+XGBoost works by iteratively adding decision trees to the model, where each subsequent tree tries to correct the errors of the previous tree. XGBoost is highly customizable and allows for the tuning of many different parameters, making it a popular choice among data scientists and machine learning practitioner thanks to its speed and accuracy.
+
+For this lab purpose we will first create a model tuning the learn_rate mainly because the learn rate control the step size for each itiration and its crucial to find the optimal learning rate at the beginning to ensure that the model converges efficiently and effectively. Create a solid base fron the beginning.
+
+Secondly we will create a second model, tuning the number of trees, tree_depth, min_n, loss_reduction.
+
+Tunning this features such as the number of trees, tree depth, min_n, and loss reduction, we can ensure that our model is robust and able to capture complex relationships within the data. These features help prevent overfitting and underfitting by controlling the complexity of the model.
+
+Thirdly we will move with the stochastic parameters such as sample_size, mtry, and stop_iter, which they are essential for controlling the randomness in the training process preventing overfitting by introducing randomness in the model's selection of features and observations during each iteration. This ensures that the model does not memorize the training data and can generalize well to unseen data.
+
+### Learning Rate
+
+Following the XGBoost tuning strategy, first conduct tuning on just the `learn_rate` parameter:
+
+```{r}
+first_model <-parsnip::boost_tree( # Set the classification for the dic variable
+  trees = 1000, # Recommended 3,000
+  learn_rate = tune(),
+) |> 
+  set_engine("xgboost") |> # Set the model that you want to use.
+  set_mode("regression")
+```
+
+Set up a grid to tune our first model to set the object where the model runs all possible combinations of the specified hyperparameter values. Then this grid is used to train and evaluate the model using each combination of hyperparameters to determine which one results in the best performance on the validation set.
+
+```{r}
+set.seed(1)
+first_grid <- expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30))
+
+```
+
+Create a workflow for thius process: **`workflow()`** is a function in the Tidy Models package in R that enables users to define and execute a pipeline of data pre-processing, modeling, and post-processing steps.
+
+```{r}
+first_workflow <- workflows::workflow() %>%
+  add_model(first_model) %>% 
+  add_formula(dic ~ .)
+
+```
+
+Here we will tune the first grid with tune_grid. (tune_grid() runs a set of performance metrics (e.g. accuracy or RMSE) for a pre-defined set of tuning parameters that correspond to a model or recipe across one or more resamples of the data.
+
+```{r}
+tic()
+doParallel::registerDoParallel() # to build trees in parallel
+
+first_tuned <- tune_grid(
+  object = first_workflow,
+  resamples = data_cv,
+  grid      = first_grid,
+  metrics   = metric_set(rmse),
+  control   = control_grid(verbose = TRUE))
+
+toc()
+
+```
+
+```{r}
+
+first_tuned %>% tune::show_best(metric = "rmse")
+first_model_best <- first_tuned %>% tune::select_best(metric = "rmse")
+
+```
+
+In practice, the learning rate is often tuned along with other hyperparameters to find the optimal balance between model performance and efficiency. So now lets start setting other parameters.
+
+## Tune Second Parameters
+
+The **`tune()`** function is used to perform hyperparameter tuning for machine learning models, where the goal is to find the optimal values for one or more hyperparameters that maximize the performance of the model on a given dataset.
+
+This three parameters control the complexity of the trees being built and the stopping criteria for each tree:
+
+1.  **tree_depth:** This parameter specifies the maximum depth of each tree in the boosting process. Increasing the tree depth can lead to more complex models that may capture more intricate relationships in the data, but it can also increase the risk of overfitting.
+
+2.  **min_n:** This parameter specifies the minimum number of observations required in each terminal node (leaf) of a tree. Setting a higher value for this parameter can prevent the model from fitting to noise or outliers, but it may result in less flexible models.
+
+3.  **loss_reduction:** This parameter determines the minimum amount of loss reduction required to further split a node in the tree. A higher value for this parameter can result in less complex models and faster convergence, but it may result in a model that is underfitting the data.
+
+4.  **trees:** This parameter control the number of trees used in the boosting process. Increasing the number of trees typically improves the performance of the model on the training set, but too many trees can lead to overfitting.
+
+```{r}
+second_model <-parsnip::boost_tree(
+  mode = "regression",
+  trees = tune(),
+  learn_rate = first_model_best$learn_rate,
+  min_n = tune(), 
+  tree_depth = tune(), 
+  loss_reduction = tune() 
+  ) |> 
+  set_engine("xgboost")
+
+```
+
+Create a workflow
+
+```{r}
+second_workflow <- workflows::workflow() %>%
+  add_model(second_model) %>% 
+  add_formula(dic ~ .)
+
+```
+
+2.  Set up a tuning grid. This time use grid_max_entropy() to get a representative sampling of the parameter space
+
+```{r}
+second_grid <- dials::grid_max_entropy(
+  min_n(),
+  tree_depth(),
+  loss_reduction(),
+  trees(), 
+  size = 100) #GRID specs from the book
+```
+
+Use the tune_grid to feed all alternatives
+
+```{r}
+tic()
+doParallel::registerDoParallel() # this function helps to build trees in parallel
+seconed_tuned <- tune_grid(
+  object = second_workflow,
+  resamples = data_cv,
+  grid      = second_grid,
+  metrics   = metric_set(rmse),
+  control   = control_grid(verbose = TRUE))
+
+toc()
+```
+
+3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
+
+```{r}
+seconed_tuned %>% tune::show_best(metric = "rmse")
+second_model_best <- seconed_tuned %>% tune::select_best(metric = "rmse")
+
+```
+
+In this case the **`show_best()`** displays the optimal hyperparameters and the corresponding performance metric(s) from the tuning process.
+
+## Tune Stochastic Parameters
+
+Now, for our third model we will randomly sample observations and predictors (features) at each iteration, which will help us to reduce overfitting and improve the generalization performance of the model. This process is called Stochastic gradient boosting (SGB) and we will tune `tune()` the hyperparameters of `sample_size`, `mtry` and `stop_iter`:
+
+1.  **sample_size:** This argument specifies the fraction (or absolute number) of observations to be sampled at each iteration. The default value is 1, which corresponds to sampling all observations. Setting sample_size to a value less than 1 results in stochastic gradient boosting, where each iteration uses a randomly selected subset of the data.
+
+2.  **mtry:** This argument specifies the number of randomly selected predictors (features) to be used at each split in the tree. The default value is NULL, which corresponds to using all predictors. Setting mtry to a value less than the total number of predictors results in stochastic feature selection, where each split uses a randomly selected subset of the predictors.
+
+3.  **stop_iter:** This argument in boost_tree() specifies the stopping criterion for the boosting process. This hyperparameter determines when the boosting process should be terminated based on a certain criterion, such as the improvement in the loss function or the number of consecutive iterations with no improvement.
+
+```{r}
+third_model <-parsnip::boost_tree(
+  mode = "regression",
+  trees = second_model_best$trees,
+  learn_rate = first_model_best$learn_rate,
+  tree_depth = second_model_best$tree_depth,
+  min_n = second_model_best$min_n,
+  loss_reduction = second_model_best$loss_reduction,
+  sample_size = tune(),
+  mtry = tune(),
+  stop_iter = tune()
+) |> 
+  set_engine("xgboost")
+```
+
+Set up the new parameters with new range of sample proportions to improve our model
+
+```{r}
+third_params <- dials::parameters(
+  stop_iter(c(5, 50)),
+  sample_size = sample_prop(c(0.4, 0.9)),
+  finalize(mtry(), train))
+
+```
+
+Create a workflow
+
+```{r}
+third_workflow <- workflows::workflow() %>%
+  add_model(third_model) %>% 
+  add_formula(dic ~ .)
+```
+
+2.  Set up a tuning grid. Use grid_max_entropy() again.
+
+```{r}
+third_grid <- dials::grid_max_entropy(third_params, size = 100) #GRID specs from the book
+```
+
+```{r}
+doParallel::registerDoParallel() # to build trees in parallel
+
+third_tuned <- tune_grid(
+  object = third_workflow,
+  resamples = data_cv,
+  grid      = third_grid ,
+  metrics   = metric_set(rmse),
+  control   = control_grid(verbose = TRUE))
+
+```
+
+3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
+
+```{r}
+third_tuned %>% tune::show_best(metric = "rmse")
+third_model_best <- third_tuned %>% tune::select_best(metric = "rmse")
+
+```
+
+As we can see in the results above for the Stochastic Parameteres, which are this randomized selections to reduce overfitting, our new optimal parameter are:
+
+```{r}
+final_boost <- finalize_model(third_model,
+                             select_best(third_tuned))
+
+final_boost_fit <- last_fit(final_boost, dic ~ ., data_split)
+```
+
+## Finalize workflow and make final prediction
+
+1.  Assemble your final workflow will all of your optimized parameters and do a final fit.
+
+```{r}
+final_model <-parsnip::boost_tree(
+  mode = "regression",
+  trees = second_model_best$trees, 
+  learn_rate = first_model_best$learn_rate,
+  tree_depth = second_model_best$tree_depth, 
+  min_n = second_model_best$min_n, 
+  loss_reduction = second_model_best$loss_reduction, 
+  sample_size = third_model_best$sample_size,
+  mtry = third_model_best$mtry,
+  stop_iter = third_model_best$stop_iter
+) |> 
+  set_engine("xgboost")
+```
+
+```{r}
+# Create your workflow
+final_workflow <- workflows::workflow() %>%
+  add_model(final_model) %>% 
+  add_formula(dic ~ .)
+
+```
+
+```{r, warning=FALSE, message=FALSE}
+# Run your final model
+final_tuned <- tune_grid(
+  object = final_workflow,
+  resamples = data_cv,
+  metrics   = metric_set(rmse))
+```
+
+Take a look at the results
+
+```{r}
+final_tuned %>% tune::show_best(metric = "rmse")
+final_metrics <- final_tuned %>% tune::select_best(metric = "rmse")
+```
+
+```{r}
+final_boost <- finalize_model(final_model,
+                             select_best(final_tuned))
+final_boost_fit <- last_fit(final_boost, dic ~ ., data_split)
+```
+
+## How well did your model perform? What types of errors did it make?
+
+Show all metrics
+
+```{r}
+final_metrics <- final_boost_fit %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(param_tuned = "final")
+
+final_metrics$.estimate[1]
+
+```
+
+## How well did your model perform? What types of errors did it make?
+-   RMSE: On average, the predicted DIC values from your model are off by about `r final_metrics$.estimate[1]` units of DIC. This means that if the actual DIC value is 100, your model might predict a value between `r 100 + final_metrics$.estimate[1]`and `r 100 - final_metrics$.estimate[1]`, with an average error of `r final_metrics$.estimate[1]` units. It's important to note that this is an average error across all predictions, and there may be individual predictions that are much more or less accurate than this.
+
+-   R²: Your model explains `r final_metrics$.estimate[2]* 100`% of the variance in DIC. This means that the model fits the data very well and can be used to make accurate predictions. A high R² value indicates that there is a strong linear relationship between the predictors and the outcome, and that the model is able to capture this relationship well.
+
+## Now lets try with our testing data:
+
+```{r}
+
+
+```
+
+
+Create two graphs one that says the possible error of rmse using the training data. 5.62 and then the result when using the test data. Same for rsq
+
+```{r}
+
+ggplot(final_metrics, aes(x = .metric, y = .estimate, fill = .metric)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Metric", y = "Value", title = "Model Performance")
+
+```
