@@ -11,7 +11,7 @@ This lab will be using the knowledge of machine learning gained in my course to 
 
 Dissolved inorganic carbon (DIC) is present in all natural waters. The concentration of DIC varies from less than 20 μM in acidic soft waters to more than 5000 μM in highly alkaline hard waters, but ranges between 100 and 1000 μM in most systems. DIC is usually the most abundant form of C in water. DIC consists of three main constituents: free CO~2~ (a gas), the bicarbonate ion (HCO~3~^−^), and the carbonate ion (CO~3~^2 −^). Although CO~2~, like other gases, readily exchanges with the atmosphere, even the surface waters of most inland systems are far from equilibrium and are usually supersaturated with respect to the atmosphere. A number of factors cause this disequilibrium. [Reference](https://www.sciencedirect.com/topics/earth-and-planetary-sciences/dissolved-inorganic-carbon#:~:text=Dissolved%20inorganic%20carbon%20(DIC)%20is,form%20of%20C%20in%20water.)
 
-Some tasks will be coverd in this lab are; explore the data, pre-processing, choose a model algorithm, tune relevant parameters with cross validation, and create my own prediction.
+Some tasks will be covered in this lab are; explore the data, pre-processing, choose a model algorithm, tune relevant parameters with cross validation, and create my own prediction.
 
 Load in the data
 
@@ -24,12 +24,12 @@ library(tictoc)
 
 ## Dataset Description
 
-This dataset was downloaded from the CalCOFI data portal. Bottle and cast data was downloaded and merged, then relevant variables were selected. I will use this data (train.csv) to train a model that will predict dissolved inorganic carbon (DIC) content in the water samples.
+This data set was downloaded from the CalCOFI data portal. Bottle and cast data was downloaded and merged, then relevant variables were selected. I will use this data (train.csv) to train a model that will predict dissolved inorganic carbon (DIC) content in the water samples.
 
 ### Files
 
 -   train.csv - the training set
--   test.csv - the test set
+-   test.csv - the test set (without the dic )
 -   sample_submission.csv - a sample submission file in the correct format Columns A database description is available here: <https://calcofi.org/data/oceanographic-data/bottle-database/>
 
 ### Read the data
@@ -40,11 +40,13 @@ train <- read_csv(here::here("data", "train.csv")) |>
   select(-c(id, x13))
 test <- read_csv(here::here("data", "test.csv")) |> 
   clean_names() |> 
-  select(-c(id))
+  mutate(ta1_x = ta1) |> 
+  relocate(ta1_x, .after = si_o3u_m) |> 
+  select(-c(id, ta1))
 
 sample <- read_csv(here::here("data", "sample_submission.csv"))
 
-names(train)
+names(test)
 ```
 
 ### Dataset Variable Description
@@ -93,7 +95,6 @@ set.seed(1)
 #Split the data
 data_split <- initial_split(train, strata = "dic")
 
-
 data_cv <- train |> 
   vfold_cv(v = 10)
 
@@ -115,17 +116,9 @@ dic_recipe <- recipe(dic ~ .,
 
 ## Select our model
 
-We will go with the XGBoost model. For short is Extreme Gradient Boosting, which is a powerful machine learning algorithm that is widely used in data science and predictive modeling. This model combines the predictions of multiple decision tree models in a systematic way to improve the accuracy of the final prediction.
+We will go with the XGBoost model. For short is Extreme Gradient Boosting. This model combines the predictions of multiple decision tree models in a systematic way to improve the accuracy of the final prediction. XGBoost works by iteratively adding decision trees to the model, where each subsequent tree tries to correct the errors of the previous tree. This model is highly customizable and allows for the tuning of many different parameters, making it a popular choice among data scientists and machine learning practitioner thanks to its speed and accuracy.
 
-XGBoost works by iteratively adding decision trees to the model, where each subsequent tree tries to correct the errors of the previous tree. XGBoost is highly customizable and allows for the tuning of many different parameters, making it a popular choice among data scientists and machine learning practitioner thanks to its speed and accuracy.
-
-For this lab purpose we will first create a model tuning the learn_rate mainly because the learn rate control the step size for each itiration and its crucial to find the optimal learning rate at the beginning to ensure that the model converges efficiently and effectively. Create a solid base fron the beginning.
-
-Secondly we will create a second model, tuning the number of trees, tree_depth, min_n, loss_reduction.
-
-Tunning this features such as the number of trees, tree depth, min_n, and loss reduction, we can ensure that our model is robust and able to capture complex relationships within the data. These features help prevent overfitting and underfitting by controlling the complexity of the model.
-
-Thirdly we will move with the stochastic parameters such as sample_size, mtry, and stop_iter, which they are essential for controlling the randomness in the training process preventing overfitting by introducing randomness in the model's selection of features and observations during each iteration. This ensures that the model does not memorize the training data and can generalize well to unseen data.
+For this lab purpose we will first create a model tuning the learn_rate. The learn rate controls the step size for each itiration and its crucial to find the optimal learning rate at the beginning to ensure that the model converges efficiently and effectively. Secondly we will create a second model grid, tuning the number of trees, tree_depth, min_n, loss_reduction. Tuning this features such as the number of trees, tree depth, min_n, and loss reduction, we can ensure that our model is robust and able to capture complex relationships within the data. These features help prevent overfitting and underfitting by controlling the complexity of the model. Thirdly we will move with the stochastic parameters such as sample_size, mtry, and stop_iter, which they are essential for controlling the randomness in the training process preventing overfitting by introducing randomness in the model's selection of features and observations during each iteration. This ensures that the model does not memorize the training data and can generalize well to unseen data.
 
 ### Learning Rate
 
@@ -133,11 +126,11 @@ Following the XGBoost tuning strategy, first conduct tuning on just the `learn_r
 
 ```{r}
 first_model <-parsnip::boost_tree( # Set the classification for the dic variable
-  trees = 1000, # Recommended 3,000
+  trees = 1000,
   learn_rate = tune(),
 ) |> 
   set_engine("xgboost") |> # Set the model that you want to use.
-  set_mode("regression")
+  set_mode("regression") # Set the mode depending on your outcome variable
 ```
 
 Set up a grid to tune our first model to set the object where the model runs all possible combinations of the specified hyperparameter values. Then this grid is used to train and evaluate the model using each combination of hyperparameters to determine which one results in the best performance on the validation set.
@@ -148,7 +141,7 @@ first_grid <- expand.grid(learn_rate = seq(0.0001, 0.3, length.out = 30))
 
 ```
 
-Create a workflow for thius process: **`workflow()`** is a function in the Tidy Models package in R that enables users to define and execute a pipeline of data pre-processing, modeling, and post-processing steps.
+Create a workflow for this process: **`workflow()`** is a function in the Tidy Models package in R that enables users to define and execute a pipeline of data pre-processing, modeling, and post-processing steps.
 
 ```{r}
 first_workflow <- workflows::workflow() %>%
@@ -180,8 +173,6 @@ first_tuned %>% tune::show_best(metric = "rmse")
 first_model_best <- first_tuned %>% tune::select_best(metric = "rmse")
 
 ```
-
-In practice, the learning rate is often tuned along with other hyperparameters to find the optimal balance between model performance and efficiency. So now lets start setting other parameters.
 
 ## Tune Second Parameters
 
@@ -219,7 +210,7 @@ second_workflow <- workflows::workflow() %>%
 
 ```
 
-2.  Set up a tuning grid. This time use grid_max_entropy() to get a representative sampling of the parameter space
+Set up a tuning grid. This time use grid_max_entropy() to get a representative sampling of the parameter space
 
 ```{r}
 second_grid <- dials::grid_max_entropy(
@@ -231,7 +222,6 @@ second_grid <- dials::grid_max_entropy(
 ```
 
 Use the tune_grid to feed all alternatives
-
 ```{r}
 tic()
 doParallel::registerDoParallel() # this function helps to build trees in parallel
@@ -245,8 +235,7 @@ seconed_tuned <- tune_grid(
 toc()
 ```
 
-3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
-
+Show the performance of the best models
 ```{r}
 seconed_tuned %>% tune::show_best(metric = "rmse")
 second_model_best <- seconed_tuned %>% tune::select_best(metric = "rmse")
@@ -257,13 +246,13 @@ In this case the **`show_best()`** displays the optimal hyperparameters and the 
 
 ## Tune Stochastic Parameters
 
-Now, for our third model we will randomly sample observations and predictors (features) at each iteration, which will help us to reduce overfitting and improve the generalization performance of the model. This process is called Stochastic gradient boosting (SGB) and we will tune `tune()` the hyperparameters of `sample_size`, `mtry` and `stop_iter`:
+Now, for our third model we will randomly sample observations and predictors (features) at each iteration, which will help us to reduce overfitting and improve the generalization performance of the model. This process is called Stochastic Gradient Boosting (SGB) and we will tune `tune()` the hyperparameters of `sample_size`, `mtry` and `stop_iter`:
 
-1.  **sample_size:** This argument specifies the fraction (or absolute number) of observations to be sampled at each iteration. The default value is 1, which corresponds to sampling all observations. Setting sample_size to a value less than 1 results in stochastic gradient boosting, where each iteration uses a randomly selected subset of the data.
+1. **sample_size:** This argument specifies the fraction (or absolute number) of observations to be sampled at each iteration. The default value is 1, which corresponds to sampling all observations. Setting sample_size to a value less than 1 results in stochastic gradient boosting, where each iteration uses a randomly selected subset of the data.
 
-2.  **mtry:** This argument specifies the number of randomly selected predictors (features) to be used at each split in the tree. The default value is NULL, which corresponds to using all predictors. Setting mtry to a value less than the total number of predictors results in stochastic feature selection, where each split uses a randomly selected subset of the predictors.
+2. **mtry:** This argument specifies the number of randomly selected predictors (features) to be used at each split in the tree. The default value is NULL, which corresponds to using all predictors. Setting mtry to a value less than the total number of predictors results in stochastic feature selection, where each split uses a randomly selected subset of the predictors.
 
-3.  **stop_iter:** This argument in boost_tree() specifies the stopping criterion for the boosting process. This hyperparameter determines when the boosting process should be terminated based on a certain criterion, such as the improvement in the loss function or the number of consecutive iterations with no improvement.
+3. **stop_iter:** This argument in boost_tree() specifies the stopping criterion for the boosting process. This hyperparameter determines when the boosting process should be terminated based on a certain criterion, such as the improvement in the loss function or the number of consecutive iterations with no improvement.
 
 ```{r}
 third_model <-parsnip::boost_tree(
@@ -291,15 +280,13 @@ third_params <- dials::parameters(
 ```
 
 Create a workflow
-
 ```{r}
 third_workflow <- workflows::workflow() %>%
   add_model(third_model) %>% 
   add_formula(dic ~ .)
 ```
 
-2.  Set up a tuning grid. Use grid_max_entropy() again.
-
+Set up a tuning grid
 ```{r}
 third_grid <- dials::grid_max_entropy(third_params, size = 100) #GRID specs from the book
 ```
@@ -316,7 +303,7 @@ third_tuned <- tune_grid(
 
 ```
 
-3.  Show the performance of the best models and the estimates for the tree parameter values associated with each.
+Show the performance of the best models
 
 ```{r}
 third_tuned %>% tune::show_best(metric = "rmse")
@@ -369,7 +356,6 @@ final_tuned <- tune_grid(
 ```
 
 Take a look at the results
-
 ```{r}
 final_tuned %>% tune::show_best(metric = "rmse")
 final_metrics <- final_tuned %>% tune::select_best(metric = "rmse")
@@ -395,14 +381,21 @@ final_metrics$.estimate[1]
 ```
 
 ## How well did your model perform? What types of errors did it make?
+
 -   RMSE: On average, the predicted DIC values from your model are off by about `r final_metrics$.estimate[1]` units of DIC. This means that if the actual DIC value is 100, your model might predict a value between `r 100 + final_metrics$.estimate[1]`and `r 100 - final_metrics$.estimate[1]`, with an average error of `r final_metrics$.estimate[1]` units. It's important to note that this is an average error across all predictions, and there may be individual predictions that are much more or less accurate than this.
 
 -   R²: Your model explains `r final_metrics$.estimate[2]* 100`% of the variance in DIC. This means that the model fits the data very well and can be used to make accurate predictions. A high R² value indicates that there is a strong linear relationship between the predictors and the outcome, and that the model is able to capture this relationship well.
 
-## Now lets try with our testing data:
+## Now lets add the predicted data to our testing data:
 
 ```{r}
 
+result <- final_workflow |> 
+  fit(data = train) |> 
+  predict(new_data = test)
+
+predict_test <- cbind(test, result) |> 
+  rename(predict_dic = .pred )
 
 ```
 
