@@ -111,7 +111,6 @@ dic_recipe <- recipe(dic ~ .,
   prep() |> 
   bake(new_data = train)
 
-
 ```
 
 ## Select our model
@@ -390,17 +389,23 @@ final_metrics$.estimate[1]
 
 ```{r}
 
+test_id <- read_csv(here::here("data", "test.csv")) |> 
+  select(id)
+
 result <- final_workflow |> 
   fit(data = train) |> 
   predict(new_data = test)
 
 predict_test <- cbind(test, result) |> 
-  rename(predict_dic = .pred )
+  cbind(test_id) |> 
+  rename(DIC = .pred) |> 
+  select(c(id, DIC)) 
+
+write_csv(predict_test, "final_results.csv")
 
 ```
 
-
-Create two graphs one that says the possible error of rmse using the training data. 5.62 and then the result when using the test data. Same for rsq
+Create two graphs one that says the possible error of rmse using the training data and then the result when using the test data. Same for rsq
 
 ```{r}
 
